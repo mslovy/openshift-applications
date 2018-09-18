@@ -1,0 +1,180 @@
+---
+apiVersion: v1
+kind: Template
+metadata:
+  name: influxdb
+labels:
+  createdBy: influxdb-template
+parameters:
+- name: APPLICATION_NAME
+  displayName: Application name.
+  description: The name for the application. The service will be named like the application.
+  value: app
+  required: true
+- name: DATA_VOL_SIZE
+  displayName: /var/lib/influxdb volume size
+  value: 10Gi
+  description: The data volume size for Influxdb
+  required: true
+- name: ETC_VOL_SIZE
+  displayName: /etc/influxdb volume size
+  value: 100Mi
+  description: The configuration volume size for Influxdb
+  required: true
+- name: CPU_LIMIT
+  displayName: CPU Limit
+  value: '2'
+  description: The max cpu consumption for application
+  required: true
+- name: MEMORY_LIMIT
+  displayName: Memory Limit
+  value: 1Gi
+  description: The max memory consumption for application
+  required: true
+objects:
+- apiVersion: v1
+  kind: ImageStream
+  metadata:
+    name: ${APPLICATION_NAME}
+    labels:
+      app: ${APPLICATION_NAME}
+  spec:
+    tags:
+    - name: 1.6.2
+      from:
+        kind: DockerImage
+        name: influxdb:1.6.2-alpine
+- apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    name: ${APPLICATION_NAME}-influxdb-data
+  spec:
+    accessModes:
+      - ReadWriteOnce
+    resources:
+      requests:
+        storage: ${DATA_VOL_SIZE}
+- apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    name: ${APPLICATION_NAME}-influxdb-config
+  spec:
+    accessModes:
+      - ReadWriteOnce
+    resources:
+      requests:
+        storage: ${ETC_VOL_SIZE}
+- apiVersion: v1
+  kind: Service
+  metadata:
+    creationTimestamp: null
+    labels:
+      app: ${APPLICATION_NAME}
+    name: ${APPLICATION_NAME}-influxdb-svc
+  spec:
+    ports:
+    - name: api-http
+      port: 8086
+      protocol: TCP
+      targetPort: 8086
+    - name: api-udp
+      port: 8087
+      protocol: UDP
+      targetPort: 8087
+    - name: admin-http
+      port: 8083
+      protocol: TCP
+      targetPort: 8083
+    selector:
+      app: ${APPLICATION_NAME}
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+- apiVersion: v1
+  kind: DeploymentConfig
+  metadata:
+    creationTimestamp: null
+    labels:
+      app: ${APPLICATION_NAME}
+    name: ${APPLICATION_NAME}-influxdb
+  spec:
+    replicas: 1
+    test: false
+    selector:
+      app: ${APPLICATION_NAME}
+    template:
+      metadata:
+        labels:
+          app: ${APPLICATION_NAME}
+      spec:
+        containers:
+        - env:
+          - name: INFLUXDB_UDP_ENABLED
+            value: "true"
+          - name: INFLUXDB_UDP_BIND_ADDRESS
+            value: :8087
+          - name: INFLUXDB_UDP_DATABASE
+            value: udp
+          image: influxdb
+          imagePullPolicy: IfNotPresent
+          name: influxdb
+          ports:
+          - name: api
+            containerPort: 8086
+            protocol: TCP
+          - name: udp
+            containerPort: 8089
+            protocol: UDP
+          - name: admin
+            containerPort: 8083
+            protocol: TCP
+          resources:
+            limits:
+              cpu: ${CPU_LIMIT}
+              memory: ${MEMORY_LIMIT}
+            requests:
+              cpu: 500m
+              memory: 500Mi
+          volumeMounts:
+          - mountPath: /var/lib/influxdb
+            name: influxdb-data
+          - mountPath: /etc/influxdb
+            name: influxdb-config
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: 8086
+            initialDelaySeconds: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: 8086
+            initialDelaySeconds: 5
+            timeoutSeconds: 1
+        dnsPolicy: ClusterFirst
+        restartPolicy: Always
+        serviceAccount: useroot
+        volumes:
+        - name: influxdb-data
+          persistentVolumeClaim:
+            claimName: ${APPLICATION_NAME}-influxdb-data
+        - name: influxdb-config
+          persistentVolumeClaim:
+            claimName: ${APPLICATION_NAME}-influxdb-config
+    strategy:
+      type: Recreate
+      Recreate: {}
+      resources: {}
+    triggers:
+    - type: ConfigChange
+    - type: ImageChange
+      imageChangeParams:
+        automatic: true
+        containerNames:
+          - influxdb
+        from:
+          kind: ImageStreamTag
+          name: ${APPLICATION_NAME}:1.6.2
+  status: {}
