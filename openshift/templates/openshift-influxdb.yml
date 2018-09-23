@@ -16,11 +16,6 @@ parameters:
   value: 10Gi
   description: The data volume size for Influxdb
   required: true
-- name: ETC_VOL_SIZE
-  displayName: /etc/influxdb volume size
-  value: 100Mi
-  description: The configuration volume size for Influxdb
-  required: true
 - name: CPU_LIMIT
   displayName: CPU Limit
   value: '2'
@@ -54,16 +49,6 @@ objects:
     resources:
       requests:
         storage: ${DATA_VOL_SIZE}
-- apiVersion: v1
-  kind: PersistentVolumeClaim
-  metadata:
-    name: ${APPLICATION_NAME}-influxdb-config
-  spec:
-    accessModes:
-      - ReadWriteOnce
-    resources:
-      requests:
-        storage: ${ETC_VOL_SIZE}
 - apiVersion: v1
   kind: Service
   metadata:
@@ -139,8 +124,6 @@ objects:
           volumeMounts:
           - mountPath: /var/lib/influxdb
             name: influxdb-data
-          - mountPath: /etc/influxdb
-            name: influxdb-config
           livenessProbe:
             httpGet:
               path: /ping
@@ -155,14 +138,10 @@ objects:
             timeoutSeconds: 1
         dnsPolicy: ClusterFirst
         restartPolicy: Always
-        serviceAccount: useroot
         volumes:
         - name: influxdb-data
           persistentVolumeClaim:
             claimName: ${APPLICATION_NAME}-influxdb-data
-        - name: influxdb-config
-          persistentVolumeClaim:
-            claimName: ${APPLICATION_NAME}-influxdb-config
     strategy:
       type: Recreate
       Recreate: {}
